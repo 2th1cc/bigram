@@ -1,111 +1,98 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
-	"log"
+	"io/ioutil"
 	"math/rand"
-	"os"
 	"strings"
+	"time"
 )
 
-type Bigram struct {
-	First  byte
-	Second byte
-}
-
 func main() {
-	names, err := readFile("names.txt")
+	// read data from file
+	data, err := ioutil.ReadFile("names.txt")
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 
-	bigrams := make(map[Bigram]int)
-	for _, name := range names {
-		for i := 0; i < len(name)-1; i++ {
-			bigram := Bigram{name[i], name[i+1]}
-			bigrams[bigram]++
+	// convert data to lowercase string
+	text := strings.ToLower(string(data))
+
+	// calculate bigram probabilities
+	bigrams := make(map[string]int)
+	for i := 0; i < len(text)-1; i++ {
+		bigram := text[i : i+2]
+		bigrams[bigram]++
+	}
+
+	// calculate total number of bigrams
+	total := 0
+	for _, count := range bigrams {
+		total += count
+	}
+
+	// calculate probabilities
+	probabilities := make(map[string]float64)
+	for bigram, count := range bigrams {
+		probabilities[bigram] = float64(count) / float64(total)
+	}
+
+	// print table of bigram probabilities
+	fmt.Println("Bigram probabilities:")
+	for bigram, probability := range probabilities {
+		fmt.Printf("%s: %.4f\n", bigram, probability)
+	}
+
+	// generate a name
+	rand.Seed(time.Now().UnixNano())
+	name := ""
+	lastLetter := "^"
+	for {
+		// get possible next bigrams
+		var candidates []string
+		for bigram := range probabilities {
+			if strings.HasPrefix(bigram, lastLetter) {
+				candidates = append(candidates, bigram)
+			}
 		}
-	}
 
-	printBigramTable(bigrams)
-
-	newName := generateName(bigrams)
-	fmt.Println("New name:", newName)
-}
-
-func readFile(filename string) ([]string, error) {
-	file, err := os.Open(filename)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	var names []string
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		name := strings.TrimSpace(scanner.Text())
-		if name != "" {
-			names = append(names, name)
+		// break out of loop if there are no candidates
+		if len(candidates) == 0 {
+			break
 		}
-	}
 
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
-
-	return names, nil
-}
-
-func printBigramTable(bigrams map[Bigram]int) {
-	fmt.Println("Bigram\tFrequency")
-	for bigram, freq := range bigrams {
-		fmt.Printf("%c%c\t%d\n", bigram.First, bigram.Second, freq)
-	}
-}
-
-func generateName(bigrams map[Bigram]int) string {
-
-	firstLetter := randomLetter(bigrams, ' ')
-	name := string(firstLetter)
-
-	for lastLetter := byte(' '); lastLetter != '$'; {
-
-		bigram := Bigram{lastLetter, firstLetter}
-		nextLetter := randomLetter(bigrams, bigram.Second)
-		name += string(nextLetter)
-
-		lastLetter = firstLetter
-		firstLetter = nextLetter
-	}
-
-	return strings.TrimSpace(name)
-}
-
-func randomLetter(bigrams map[Bigram]int, prevLetter byte) byte {
-	var letters []byte
-	var frequencies []int
-	totalFreq := 0
-
-	for bigram, freq := range bigrams {
-		if bigram.First == prevLetter {
-			letters = append(letters, bigram.Second)
-			frequencies = append(frequencies, freq)
-			totalFreq += freq
+		// choose next bigram randomly based on probabilities
+		sum := 0.0
+		for _, bigram := range candidates {
+			sum += probabilities[bigram]
 		}
-	}
-
-	if totalFreq <= 0 {
-		return ' '
-	}
-
-	r := rand.Intn(totalFreq)
-	for i, freq := range frequencies {
-		r -= freq
-		if r < 0 {
-			return letters[i]
+		randVal := rand.Float64() * sum
+		nextBigram := ""
+		for _, bigram := range candidates {
+			randVal -= probabilities[bigram]
+			if randVal <= 0 {
+				nextBigram = bigram
+				break
+			}
 		}
+
+		// add next letter to name
+		nextLetter := string(nextBigram[1])
+		if nextLetter == "$" {
+			break
+		}
+		name += nextLetter
+		lastLetter = nextLetter
 	}
 
-	return ' '
+	// capitalize first letter of name
+	if len(name) > 0 {
+		name = strings.ToUpper(name[:1]) + name[1:]
+	}
+
+	if name != "" {
+		fmt.Println("Generated name:", name)
+	} else {
+		fmt.Println("Unable to generate name")
+	}
 }
