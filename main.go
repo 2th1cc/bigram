@@ -1,119 +1,111 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
+	"log"
 	"math/rand"
 	"os"
 	"strings"
-	"time"
 )
 
+type Bigram struct {
+	First  byte
+	Second byte
+}
+
 func main() {
-	file, err := os.Open("names.txt")
+	names, err := readFile("names.txt")
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
+	}
+
+	bigrams := make(map[Bigram]int)
+	for _, name := range names {
+		for i := 0; i < len(name)-1; i++ {
+			bigram := Bigram{name[i], name[i+1]}
+			bigrams[bigram]++
+		}
+	}
+
+	printBigramTable(bigrams)
+
+	newName := generateName(bigrams)
+	fmt.Println("New name:", newName)
+}
+
+func readFile(filename string) ([]string, error) {
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, err
 	}
 	defer file.Close()
 
-	data := make([]byte, 0)
-	buf := make([]byte, 1024)
-	for {
-		n, err := file.Read(buf)
-		if err != nil {
-			break
-		}
-		data = append(data, buf[:n]...)
-	}
-	names := strings.Split(string(data), "\n")
-
-	bigramFreq := make(map[string]int)
-
-	for _, name := range names {
-		bigrams := getBigrams(name)
-		for _, bigram := range bigrams {
-			bigramFreq[bigram]++
+	var names []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		name := strings.TrimSpace(scanner.Text())
+		if name != "" {
+			names = append(names, name)
 		}
 	}
 
-	totalBigrams := len(getBigrams(strings.Join(names, "")))
-	bigramProb := make(map[string]float64)
-	for bigram, freq := range bigramFreq {
-		bigramProb[bigram] = float64(freq) / float64(totalBigrams)
+	if err := scanner.Err(); err != nil {
+		return nil, err
 	}
 
-	name := generateName(bigramProb)
-	fmt.Println(name)
-
-	displayTable(bigramProb)
-
+	return names, nil
 }
 
-func getBigrams(name string) []string {
-	var bigrams []string
-	for i := 0; i < len(name)-1; i++ {
-		bigrams = append(bigrams, string(name[i])+string(name[i+1]))
+func printBigramTable(bigrams map[Bigram]int) {
+	fmt.Println("Bigram\tFrequency")
+	for bigram, freq := range bigrams {
+		fmt.Printf("%c%c\t%d\n", bigram.First, bigram.Second, freq)
 	}
-	return bigrams
 }
 
-func getFirstLetter(bigramProb map[string]float64) string {
-	rand.Seed(time.Now().UnixNano())
-	var letters []string
-	var probs []float64
-	for bigram, prob := range bigramProb {
-		if strings.HasPrefix(bigram, "^") {
-			letters = append(letters, string(bigram[1]))
-			probs = append(probs, prob)
-		}
+func generateName(bigrams map[Bigram]int) string {
+
+	firstLetter := randomLetter(bigrams, ' ')
+	name := string(firstLetter)
+
+	for lastLetter := byte(' '); lastLetter != '$'; {
+
+		bigram := Bigram{lastLetter, firstLetter}
+		nextLetter := randomLetter(bigrams, bigram.Second)
+		name += string(nextLetter)
+
+		lastLetter = firstLetter
+		firstLetter = nextLetter
 	}
-	return letters[randomChoice(probs)]
+
+	return strings.TrimSpace(name)
 }
 
-func randomChoice(probs []float64) int {
-	rand.Seed(time.Now().UnixNano())
-	sumProb := 0.0
-	for _, prob := range probs {
-		sumProb += prob
-	}
-	r := rand.Float64() * sumProb
-	for i, prob := range probs {
-		r -= prob
-		if r <= 0 {
-			return i
-		}
-	}
-	return len(probs) - 1
-}
+func randomLetter(bigrams map[Bigram]int, prevLetter byte) byte {
+	var letters []byte
+	var frequencies []int
+	totalFreq := 0
 
-func generateName(bigramProb map[string]float64) string {
-	name := getFirstLetter(bigramProb)
-	for {
-		var nextLetter string
-		var probs []float64
-		lastBigram := string(name[len(name)-1]) + "$"
-		for bigram, prob := range bigramProb {
-			if strings.HasPrefix(bigram, lastBigram) {
-				nextLetter = string(bigram[1])
-				break
-			}
-			if strings.HasPrefix(bigram, string(name[len(name)]-1)) {
-				probs = append(probs, prob)
-			}
+	for bigram, freq := range bigrams {
+		if bigram.First == prevLetter {
+			letters = append(letters, bigram.Second)
+			frequencies = append(frequencies, freq)
+			totalFreq += freq
 		}
-		if nextLetter == "" {
-			nextLetter = string(randomChoice(probs))
-		}
-		if nextLetter == "$" {
-			break
-		}
-		name += nextLetter
 	}
-	return name
-}
 
-func displayTable(bigramProb map[string]float64) {
-	fmt.Printf("%-5s%-5s%s\n", "Prev", "Curr", "Probability")
-	for bigram, prob := range bigramProb {
-		fmt.Printf("%-5s%-5s%.4f\n", string(bigram[0]), string(bigram[1]), prob)
+	if totalFreq <= 0 {
+		return ' '
 	}
+
+	r := rand.Intn(totalFreq)
+	for i, freq := range frequencies {
+		r -= freq
+		if r < 0 {
+			return letters[i]
+		}
+	}
+
+	return ' '
 }
